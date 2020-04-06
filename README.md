@@ -39,6 +39,8 @@ Then, you can run the test:
  -verbose
 ```
 
+<img src="https://github.com/bocon13/p4rt-go/raw/master/test_bmv2.gif" width="688px" height="342px" />
+
 ## Building for Tofino
 
 Build the test binary
