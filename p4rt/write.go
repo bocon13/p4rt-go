@@ -48,23 +48,23 @@ func (c *p4rtClient) ListenForWrites() {
 	for {
 		updates := make([]*p4.Update, MAX_BATCH_SIZE)
 		var i int
-		batch: // read as much as we can from the write chan and send
-		for i = 0; i < MAX_BATCH_SIZE; i++ {
+		updates[0] = <- c.writes // wait for the first write in the batch
+		batch: // read as much as we can from the write channel into the batch
+		for i = 1; i < MAX_BATCH_SIZE; i++ {
 			select {
 			case update := <-c.writes:
 				updates[i] = update
-			default:
+			default: // no write update is immediately available
 				break batch
 			}
 		}
-		if i == 0 {
-			continue // batch is empty
-		}
+		// Build the batch write request
 		req := &p4.WriteRequest{
 			DeviceId:   c.deviceId,
 			ElectionId: &c.electionId,
 			Updates:    updates[0:i],
 		}
+		// Write the request
 		start := time.Now()
 		_, err := c.client.Write(context.Background(), req)
 		// ignore the response; it is an empty message
