@@ -54,7 +54,7 @@ func BuildPipelineConfig(p4info p4_config_v1.P4Info, deviceConfigPath string) (c
 
 	config.P4Info = &p4info
 	config.P4DeviceConfig = deviceConfig
-	config.Cookie = &p4.ForwardingPipelineConfig_Cookie{cookie}
+	config.Cookie = &p4.ForwardingPipelineConfig_Cookie{Cookie: cookie}
 	return
 }
 

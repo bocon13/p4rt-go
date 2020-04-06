@@ -20,6 +20,7 @@ bash <(curl -s https://raw.githubusercontent.com/bocon13/p4rt-go/master/setup.sh
 
 Build the test binary
 ```
+cd $HOME/go/src/github.com/bocon13/p4rt-go/
 go build -tags bmv2 -o p4rt_test_bmv2 bin/main.go
 ```
 
@@ -42,7 +43,7 @@ Then, you can run the test:
 
 Build the test binary
 ```
-GOOS=linux go build -o p4rt_test_tofino -tags tofino bin/main.go
+GOOS=linux go build -tags tofino -o p4rt_test_tofino bin/main.go
 ```
 
 Start Stratum on your Tofino switch

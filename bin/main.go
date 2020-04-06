@@ -110,11 +110,11 @@ func SendTableEntries(p4rt p4rt.P4RuntimeClient, count uint64, verbose bool) {
 
 	update := &p4.Update{
 		Type: p4.Update_INSERT,
-		Entity: &p4.Entity{&p4.Entity_TableEntry{
+		Entity: &p4.Entity{Entity: &p4.Entity_TableEntry{
 			TableEntry: &p4.TableEntry{
 				TableId: 33574274, // FabricIngress.forwarding.mpls
 				Match:   match,
-				Action: &p4.TableAction{&p4.TableAction_Action{Action: &p4.Action{
+				Action: &p4.TableAction{Type: &p4.TableAction_Action{Action: &p4.Action{
 					ActionId: 16827758, // pop_mpls_and_next
 					Params: []*p4.Action_Param{
 						{
