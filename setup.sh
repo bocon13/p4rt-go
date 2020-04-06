@@ -14,10 +14,10 @@ go get -d -v -u github.com/p4lang/p4runtime
 go get -d -v -u github.com/google/protobuf
 go get -d -v -u github.com/googleapis/googleapis
 go get -v -u golang.org/x/sys/unix
+go get -v -u github.com/bocon13/p4rt-go/p4rt
+go get -v -u github.com/bocon13/p4rt-go/bin
 
-#go get -v -u github.com/bocon13/p4rt-go
-
-cd $GOPATH/src
+cd $GOPATH/src || exit
 protoc -Igithub.com/p4lang/p4runtime/proto \
   --go_out=github.com/p4lang/p4runtime/proto \
   github.com/p4lang/p4runtime/proto/p4/config/v1/p4types.proto \
