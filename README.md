@@ -3,15 +3,30 @@
 Client library and flow write performance tester
 
 ## Setup (one time)
+*Install Go* (>= 1.13.3)
+https://golang.org/doc/install
 
+*Install Protoc* (>= 3.2.0)
+You only need the C++ version
+https://developers.google.com/protocol-buffers/
+
+`export GOPATH=~/go` (if you changed it)
+
+```
+bash <(curl -s https://raw.githubusercontent.com/bocon13/p4rt-go/master/setup.sh)
+```
 
 ## Building for BMv2
 
 Build the test binary
-`go build -tags bmv2 -o p4rt_test_bmv2 bin/main.go`
+```
+go build -tags bmv2 -o p4rt_test_bmv2 bin/main.go
+```
 
 Run Stratum BMv2:
-`docker run --privileged --rm -it -p 50001:50001 opennetworking/mn-stratum`
+```
+docker run --privileged --rm -it -p 50001:50001 opennetworking/mn-stratum
+```
 
 Then, you can run the test:
 ```
@@ -26,7 +41,9 @@ Then, you can run the test:
 ## Building for Tofino
 
 Build the test binary
-`GOOS=linux go build -o p4rt_test_tofino -tags tofino bin/main.go`
+```
+GOOS=linux go build -o p4rt_test_tofino -tags tofino bin/main.go
+```
 
 Start Stratum on your Tofino switch
 
