@@ -30,21 +30,21 @@ type P4RuntimeClient interface {
 	SetMastership(electionId p4.Uint128) error
 	GetForwardingPipelineConfig() (*p4.ForwardingPipelineConfig, error)
 	SetForwardingPipelineConfig(p4InfoPath, deviceConfigPath string) error
-	Write(update *p4.Update)
+	Write(update *p4.Update) <-chan *p4.Error
 	SetWriteTraceChan(traceChan chan WriteTrace)
 }
 
 type p4rtClientKey struct {
-	host string
+	host     string
 	deviceId uint64
 }
 
 type p4rtClient struct {
-	client p4.P4RuntimeClient
-	stream p4.P4Runtime_StreamChannelClient
-	deviceId uint64
-	electionId p4.Uint128
-	writes chan *p4.Update
+	client         p4.P4RuntimeClient
+	stream         p4.P4Runtime_StreamChannelClient
+	deviceId       uint64
+	electionId     p4.Uint128
+	writes         chan p4Write
 	writeTraceChan chan WriteTrace
 }
 
@@ -73,7 +73,7 @@ func (c *p4rtClient) Init() (err error) {
 	}()
 
 	// Initialize Write thread
-	c.writes = make(chan *p4.Update, WRITE_BUFFER_SIZE)
+	c.writes = make(chan p4Write, WRITE_BUFFER_SIZE)
 	for i := 0; i < NUM_PARALLEL_WRITERS; i++ {
 		go c.ListenForWrites()
 	}
@@ -97,8 +97,8 @@ func GetP4RuntimeClient(host string, deviceId uint64) (P4RuntimeClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	client :=  &p4rtClient{
-		client: p4.NewP4RuntimeClient(conn),
+	client := &p4rtClient{
+		client:   p4.NewP4RuntimeClient(conn),
 		deviceId: deviceId,
 	}
 	err = client.Init()

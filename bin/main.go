@@ -24,8 +24,15 @@ import (
 	"github.com/bocon13/p4rt-go/p4rt"
 	"github.com/golang/protobuf/proto"
 	p4 "github.com/p4lang/p4runtime/proto/p4/v1"
+	"google.golang.org/grpc/codes"
+	"os"
+	"sync"
+	"sync/atomic"
 	"time"
 )
+
+var writeReples sync.WaitGroup
+var failedWrites uint32
 
 func main() {
 
@@ -42,7 +49,7 @@ func main() {
 		panic(err)
 	}
 
-	err = client.SetMastership(p4.Uint128{High: 0, Low:  1})
+	err = client.SetMastership(p4.Uint128{High: 0, Low: 1})
 	if err != nil {
 		panic(err)
 	}
@@ -84,17 +91,20 @@ func main() {
 	}()
 
 	// Send the flow entries
+	writeReples.Add(int(*count))
 	start := time.Now()
-	SendTableEntries(client, *count, *verbose)
+	SendTableEntries(client, *count)
 
 	// Wait for all writes to finish
-	<- doneChan
+	<-doneChan
 	duration := time.Since(start).Seconds()
 	fmt.Printf("\033[2K\r%f seconds, %d writes, %f writes/sec\n",
-		duration, *count, float64(*count) / duration)
+		duration, *count, float64(*count)/duration)
+	writeReples.Wait()
+	fmt.Printf("Number of failed writes: %d\n", failedWrites)
 }
 
-func SendTableEntries(p4rt p4rt.P4RuntimeClient, count uint64, verbose bool) {
+func SendTableEntries(p4rt p4rt.P4RuntimeClient, count uint64) {
 	match := []*p4.FieldMatch{
 		{
 			FieldId:        1, // mpls_label
@@ -128,10 +138,21 @@ func SendTableEntries(p4rt p4rt.P4RuntimeClient, count uint64, verbose bool) {
 	}
 
 	for i := uint64(0); i < count; i++ {
+		//update.GetEntity().GetTableEntry().GetMatch()[0].FieldId = uint32(i % 2)
 		matchField := update.GetEntity().GetTableEntry().GetMatch()[0].GetExact()
 		matchField.Value = Uint64(i)[5:8] // mpls_label is 20 bits
-		p4rt.Write(proto.Clone(update).(*p4.Update))
+		res := p4rt.Write(update)
+		go CountFailed(proto.Clone(update).(*p4.Update), res)
 	}
+}
+
+func CountFailed(update *p4.Update, res <-chan *p4.Error) {
+	err := <-res
+	if err.CanonicalCode != int32(codes.OK) { // write failed
+		atomic.AddUint32(&failedWrites, 1)
+		fmt.Fprintf(os.Stderr, "%v -> %v\n", update, err.GetMessage())
+	}
+	writeReples.Done()
 }
 
 func Uint64(v uint64) []byte {

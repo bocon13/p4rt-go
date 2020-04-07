@@ -20,7 +20,11 @@ package p4rt
 import (
 	"context"
 	"fmt"
+	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/ptypes"
 	p4 "github.com/p4lang/p4runtime/proto/p4/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"time"
 )
 
@@ -28,16 +32,24 @@ var MAX_BATCH_SIZE = 200
 var NUM_PARALLEL_WRITERS = 1
 var WRITE_BUFFER_SIZE = MAX_BATCH_SIZE * NUM_PARALLEL_WRITERS * 10
 
-func (c *p4rtClient) Write(update *p4.Update) {
-	//TODO add a callback mechanism to let the original writer know if success/failure
-	//FIXME to make sure that the called doesn't change the update under us:
-	//   proto.Clone(update).(*p4.Update)
-	c.writes <- update
+type p4Write struct {
+	update   *p4.Update
+	response chan *p4.Error
 }
 
 type WriteTrace struct {
 	BatchSize int
-	Duration time.Duration
+	Duration  time.Duration
+	Errors    []*p4.Error
+}
+
+func (c *p4rtClient) Write(update *p4.Update) <-chan *p4.Error {
+	res := make(chan *p4.Error, 1)
+	c.writes <- p4Write{
+		update:   proto.Clone(update).(*p4.Update),
+		response: res,
+	}
+	return res
 }
 
 func (c *p4rtClient) SetWriteTraceChan(traceChan chan WriteTrace) {
@@ -46,45 +58,98 @@ func (c *p4rtClient) SetWriteTraceChan(traceChan chan WriteTrace) {
 
 func (c *p4rtClient) ListenForWrites() {
 	for {
-		updates := make([]*p4.Update, MAX_BATCH_SIZE)
-		var i int
-		updates[0] = <- c.writes // wait for the first write in the batch
-		batch: // read as much as we can from the write channel into the batch
-		for i = 1; i < MAX_BATCH_SIZE; i++ {
+		writes := make([]p4Write, MAX_BATCH_SIZE)
+		var currBatchSize int
+		writes[0] = <-c.writes // wait for the first write in the batch
+	batch: // read as much as we can from the write channel into the batch
+		for currBatchSize = 1; currBatchSize < MAX_BATCH_SIZE; currBatchSize++ {
 			select {
-			case update := <-c.writes:
-				updates[i] = update
+			case write := <-c.writes:
+				writes[currBatchSize] = write
 			default: // no write update is immediately available
 				break batch
 			}
 		}
+
 		// Build the batch write request
+		updates := make([]*p4.Update, currBatchSize)
+		for i := range updates {
+			updates[i] = writes[i].update
+		}
 		req := &p4.WriteRequest{
 			DeviceId:   c.deviceId,
 			ElectionId: &c.electionId,
-			Updates:    updates[0:i],
+			Updates:    updates,
 		}
 		// Write the request
 		start := time.Now()
 		_, err := c.client.Write(context.Background(), req)
-		// ignore the response; it is an empty message
-		if err != nil {
-			fmt.Printf("error writing to device: %v\n", err)
-			//TODO add a callback mechanism to let the original writer know if success/failure
-		} else if c.writeTraceChan != nil {
-			trace := WriteTrace{
-				BatchSize: i,
-				Duration:  time.Since(start),
-			}
-			select {
-			case c.writeTraceChan <- trace: // put trace into the channel unless it is full
-			default:
-				fmt.Println("Write trace channel full. Discarding trace")
-			}
-		}
+		// ignore the write response; it is an empty message (details, if any, are in err)
+		go processWriteResponse(writes, err, currBatchSize, start, c.writeTraceChan)
 	}
 }
 
+func processWriteResponse(writes []p4Write, err error, batchSize int, start time.Time, traceChan chan WriteTrace) {
+	duration := time.Since(start)
+	errors := ParseP4RuntimeWriteError(err, batchSize)
+	// Send p4.Errors to waiting channels
+	for i := range errors {
+		writes[i].response <- errors[i]
+	}
+
+	if traceChan != nil {
+		trace := WriteTrace{
+			BatchSize: batchSize,
+			Duration:  duration,
+			Errors:    errors,
+		}
+		select {
+		case traceChan <- trace: // put trace into the channel unless it is full
+		default:
+			fmt.Println("Write trace channel full. Discarding trace")
+		}
+	}
+
+}
+
+func ParseP4RuntimeWriteError(err error, batchSize int) []*p4.Error {
+	errors := make([]*p4.Error, batchSize)
+	var code int32
+	var message = ""
+	if err != nil {
+		grpcError := status.Convert(err).Proto() // TODO consider status.FromError()
+		if grpcError.GetCode() == int32(codes.Unknown) && batchSize > 0 && len(grpcError.GetDetails()) == batchSize {
+			// gRPC error may contain p4.Errors
+			for i := range grpcError.Details {
+				p4Err := p4.Error{}
+				unmarshallErr := ptypes.UnmarshalAny(grpcError.Details[i], &p4Err)
+				if unmarshallErr != nil {
+					// Unmarshalling p4.Error failed (construct a synthetic p4.Error)
+					p4Err = p4.Error{
+						CanonicalCode: int32(codes.Internal),
+						Message:       unmarshallErr.Error(),
+						Space:         "p4rt-go",
+					}
+				}
+				errors[i] = &p4Err
+			}
+			return errors
+		}
+		message = grpcError.GetMessage()
+	} else {
+		code = int32(codes.OK)
+	}
+
+	// If the error does not have p4.Errors, build a stand-in p4.Error for all requests
+	p4Error := &p4.Error{
+		CanonicalCode: code,
+		Message:       message,
+	}
+	for i := range errors {
+		errors[i] = p4Error
+	}
+	return errors
+}
 
 func (c *p4rtClient) RemainingWrites() bool {
 	return len(c.writes) > 0
